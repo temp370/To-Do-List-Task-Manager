@@ -382,9 +382,31 @@ th {
   .drawer-panel { width: 100%; right: -100%; }
 }
 </style>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 
 <body>
+
+<div id="authPanel" style="max-width:420px;margin:70px auto;padding:25px;background:white;border-radius:12px;box-shadow:0 2px 12px #0002">
+  <h2>🔐 Personal Habit Tracker</h2>
+  <p>Login to access your personal tasks</p>
+
+  <input id="authEmail" type="email" placeholder="Your Email" style="width:100%;padding:12px;margin:8px 0">
+
+  <input id="authPassword" type="password" placeholder="Your Password" style="width:100%;padding:12px;margin:8px 0">
+
+  <button id="loginBtn" style="width:100%;padding:12px;margin-top:10px">
+    Login
+  </button>
+
+  <p id="authMessage"></p>
+</div>
+
+<div id="logoutBar" style="display:none;text-align:right">
+  <button id="logoutBtn">Logout</button>
+</div>
+
 
 <!-- Sliding Menu Drawer Overlay -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="toggleMenu()"></div>
@@ -498,301 +520,425 @@ th {
 </div>
 
 <script>
-// Load Data & Daily Tracking State
-let todayDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-let appData = JSON.parse(localStorage.getItem("habitAppData")) || {
-  goalDays: 30,
-  testMode: false,
-  history: {}
-};
 
-let tasks = JSON.parse(localStorage.getItem("myTasks_" + todayDate)) || [];
-let stagedTasks = [...tasks]; // Temporary copy for drawer editing before final save
+const SUPABASE_URL = "https://mnlihedukpcslkqcqkfb.supabase.co";
+const SUPABASE_KEY = "sb_publishable_9wkFFYWsuNcFOqpdpcZJ8g_9yJ4zaQc";
 
-// Initialize input fields
-document.getElementById("goalDaysInput").value = appData.goalDays;
-if (appData.testMode) {
-  document.getElementById("app").classList.add("test-mode");
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let todayDate = new Date().toLocaleDateString("en-CA");
+let tasks = [];
+let stagedTasks = [];
+let appData = { goalDays: 30, testMode: false, history: {} };
+
+const $ = id => document.getElementById(id);
+
+function showApp(loggedIn) {
+  $("authPanel").style.display = loggedIn ? "none" : "block";
+  $("app").style.display = loggedIn ? "block" : "none";
+  $("logoutBar").style.display = loggedIn ? "block" : "none";
 }
 
-// Toggle Sliding Drawer Menu
+async function login() {
+  const email = $("authEmail").value.trim();
+  const password = $("authPassword").value;
+
+  if (!email || !password) {
+    $("authMessage").textContent = "Enter email and password";
+    return;
+  }
+
+  $("loginBtn").disabled = true;
+  $("authMessage").textContent = "Signing in...";
+
+  const { error } = await db.auth.signInWithPassword({ email, password });
+
+  $("loginBtn").disabled = false;
+
+  if (error) $("authMessage").textContent = error.message;
+}
+
+async function logout() {
+  const { error } = await db.auth.signOut();
+  if (error) alert(error.message);
+}
+
+async function saveSettings() {
+  const { error } = await db.from("app_settings").upsert({
+    user_id: currentUser.id,
+    goal_days: appData.goalDays,
+    test_mode: appData.testMode,
+    history: appData.history
+  }, { onConflict: "user_id" });
+
+  if (error) throw error;
+}
+
+async function loadSettings() {
+  const { data, error } = await db.from("app_settings")
+    .select("*").eq("user_id", currentUser.id).maybeSingle();
+
+  if (error) throw error;
+
+  if (data) {
+    appData = {
+      goalDays: data.goal_days,
+      testMode: data.test_mode,
+      history: data.history || {}
+    };
+  } else {
+    await saveSettings();
+  }
+}
+
+async function loadTasks() {
+  const { data, error } = await db.from("tasks")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .eq("task_date", todayDate)
+    .order("created_at");
+
+  if (error) throw error;
+
+  tasks = (data || []).map(t => ({
+    id: t.id,
+    name: t.name,
+    status: t.status || ""
+  }));
+
+  stagedTasks = tasks.map(t => ({ ...t }));
+}
+
+async function initializeApp() {
+  try {
+    showApp(true);
+    await loadSettings();
+    await loadTasks();
+
+    $("goalDaysInput").value = appData.goalDays;
+    $("app").classList.toggle("test-mode", appData.testMode);
+
+    render();
+    renderDrawerPreview();
+  } catch (error) {
+    alert("Loading error: " + error.message);
+    console.error(error);
+  }
+}
+
 function toggleMenu() {
-  const drawer = document.getElementById("drawerPanel");
-  const overlay = document.getElementById("drawerOverlay");
-  
-  // When opening drawer, sync stagedTasks with current saved tasks
+  const drawer = $("drawerPanel");
+  const overlay = $("drawerOverlay");
+
   if (!drawer.classList.contains("active")) {
-    stagedTasks = [...tasks];
+    stagedTasks = tasks.map(t => ({ ...t }));
     renderDrawerPreview();
   }
-  
+
   drawer.classList.toggle("active");
   overlay.classList.toggle("active");
 }
 
-// Add task to temporary staged list (Doesn't affect main screen yet)
 function stageTask() {
-  const input = document.getElementById("taskInput");
+  const input = $("taskInput");
   const name = input.value.trim();
 
-  if (!name) {
-    alert("Please enter a task name!");
-    return;
-  }
+  if (!name) return alert("Please enter a task name!");
 
-  stagedTasks.push({
-    id: Date.now() + Math.random(),
-    name: name,
-    status: ""
-  });
-
+  stagedTasks.push({ id: null, name, status: "" });
   input.value = "";
   renderDrawerPreview();
 }
 
-// Remove task from temporary staged list
-function removeStagedTask(id) {
-  stagedTasks = stagedTasks.filter(t => t.id !== id);
+function removeStagedTask(index) {
+  stagedTasks.splice(index, 1);
   renderDrawerPreview();
 }
 
-// Render temporary preview inside drawer
 function renderDrawerPreview() {
-  const container = document.getElementById("drawerTaskPreview");
+  const container = $("drawerTaskPreview");
   container.innerHTML = "";
 
-  if (stagedTasks.length === 0) {
-    container.innerHTML = `<div style="text-align: center; color: #94a3b8; font-size: 12px; padding: 10px;">No tasks added yet</div>`;
+  if (!stagedTasks.length) {
+    container.textContent = "No tasks added yet";
     return;
   }
 
-  stagedTasks.forEach(task => {
+  stagedTasks.forEach((task, index) => {
     const item = document.createElement("div");
     item.className = "preview-item";
-    item.innerHTML = `
-      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px;">${task.name}</span>
-      <button onclick="removeStagedTask(${task.id})">Remove</button>
-    `;
+
+    const name = document.createElement("span");
+    name.textContent = task.name;
+
+    const button = document.createElement("button");
+    button.textContent = "Remove";
+    button.onclick = () => removeStagedTask(index);
+
+    item.append(name, button);
     container.appendChild(item);
   });
 }
 
-// Final Save & Close Menu (Updates main screen and saves to localStorage)
-function saveAndCloseMenu() {
-  // Update goal days as well
-  const goalVal = parseInt(document.getElementById("goalDaysInput").value);
-  if (!isNaN(goalVal) && goalVal > 0) {
-    appData.goalDays = goalVal;
+async function saveAndCloseMenu() {
+  const goal = parseInt($("goalDaysInput").value);
+
+  if (!isNaN(goal) && goal > 0) appData.goalDays = goal;
+
+  try {
+    const { error: deleteError } = await db.from("tasks")
+      .delete()
+      .eq("user_id", currentUser.id)
+      .eq("task_date", todayDate);
+
+    if (deleteError) throw deleteError;
+
+    if (stagedTasks.length) {
+      const rows = stagedTasks.map(t => ({
+        user_id: currentUser.id,
+        task_date: todayDate,
+        name: t.name,
+        status: t.status || ""
+      }));
+
+      const { error } = await db.from("tasks").insert(rows);
+      if (error) throw error;
+    }
+
+    await loadTasks();
+    checkDayCompletion();
+    await saveSettings();
+    render();
+
+    $("drawerPanel").classList.remove("active");
+    $("drawerOverlay").classList.remove("active");
+  } catch (error) {
+    alert("Save failed: " + error.message);
+    await loadTasks();
+    render();
   }
-
-  // Commit staged tasks to main tasks array
-  tasks = [...stagedTasks];
-  checkDayCompletion();
-  
-  // Save to storage and render main interface
-  localStorage.setItem("myTasks_" + todayDate, JSON.stringify(tasks));
-  localStorage.setItem("habitAppData", JSON.stringify(appData));
-  render();
-
-  // Close menu drawer smoothly
-  toggleMenu();
 }
 
-// Update Task Status & Check Day Completion Rule
-function updateStatus(id, status) {
+async function updateStatus(id, status) {
   const task = tasks.find(t => t.id === id);
   if (!task || task.status !== "") return;
-  
+
+  const { error } = await db.from("tasks")
+    .update({ status })
+    .eq("id", id)
+    .eq("user_id", currentUser.id);
+
+  if (error) return alert(error.message);
+
   task.status = status;
   checkDayCompletion();
-  
-  localStorage.setItem("myTasks_" + todayDate, JSON.stringify(tasks));
-  localStorage.setItem("habitAppData", JSON.stringify(appData));
+  await saveSettings();
   render();
 }
 
-// Check if ALL tasks for today are completed ("YES")
 function checkDayCompletion() {
-  if (tasks.length === 0) {
-    appData.history[todayDate] = false;
-    return;
-  }
-  
-  const allCompleted = tasks.every(t => t.status === "YES");
-  appData.history[todayDate] = allCompleted;
+  appData.history[todayDate] = tasks.length > 0 &&
+    tasks.every(t => t.status === "YES");
 }
 
-// Edit Task from Main Table
-function editTask(id) {
+async function editTask(id) {
   const task = tasks.find(t => t.id === id);
   if (!task) return;
 
-  const newName = prompt("Edit Task:", task.name);
-  if (newName !== null && newName.trim()) {
-    task.name = newName.trim();
-    checkDayCompletion();
-    localStorage.setItem("myTasks_" + todayDate, JSON.stringify(tasks));
-    localStorage.setItem("habitAppData", JSON.stringify(appData));
-    render();
-  }
-}
+  const name = prompt("Edit Task:", task.name);
+  if (name === null || !name.trim()) return;
 
-// Delete Task from Main Table
-function deleteTask(id) {
-  if (!confirm("Are you sure you want to delete this task?")) return;
-  tasks = tasks.filter(t => t.id !== id);
+  const { error } = await db.from("tasks")
+    .update({ name: name.trim() })
+    .eq("id", id)
+    .eq("user_id", currentUser.id);
+
+  if (error) return alert(error.message);
+
+  task.name = name.trim();
   checkDayCompletion();
-  localStorage.setItem("myTasks_" + todayDate, JSON.stringify(tasks));
-  localStorage.setItem("habitAppData", JSON.stringify(appData));
+  await saveSettings();
   render();
 }
 
-// Test Mode Data Loader
+async function deleteTask(id) {
+  if (!confirm("Are you sure you want to delete this task?")) return;
+
+  const { error } = await db.from("tasks")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", currentUser.id);
+
+  if (error) return alert(error.message);
+
+  tasks = tasks.filter(t => t.id !== id);
+  checkDayCompletion();
+  await saveSettings();
+  render();
+}
+
 function loadTest() {
   if (!confirm("Load sample test tasks?")) return;
-  
+
   appData.testMode = true;
   appData.goalDays = 30;
-  document.getElementById("goalDaysInput").value = 30;
-  document.getElementById("app").classList.add("test-mode");
+  $("goalDaysInput").value = 30;
+  $("app").classList.add("test-mode");
 
   stagedTasks = [
-    { id: 1, name: "Morning Routine & Exercise", status: "YES" },
-    { id: 2, name: "Code Review & Refactoring", status: "YES" },
-    { id: 3, name: "Deploy to Production", status: "YES" }
+    { id: null, name: "Morning Routine & Exercise", status: "YES" },
+    { id: null, name: "Code Review & Refactoring", status: "YES" },
+    { id: null, name: "Deploy to Production", status: "YES" }
   ];
+
   renderDrawerPreview();
 }
 
-// Secure Reset Data (Must type "confirm")
-function resetData() {
-  const userInput = prompt("To completely reset data, type 'confirm' below:");
-  if (userInput === null) return;
-  
-  if (userInput.trim().toLowerCase() === "confirm") {
-    localStorage.clear();
-    tasks = [];
-    stagedTasks = [];
-    appData = { goalDays: 30, testMode: false, history: {} };
-    document.getElementById("app").classList.remove("test-mode");
-    document.getElementById("goalDaysInput").value = 30;
-    render();
-    renderDrawerPreview();
-    alert("App data reset successfully.");
-    toggleMenu();
-  } else {
-    alert("Incorrect confirmation text! Reset cancelled.");
-  }
+async function resetData() {
+  const answer = prompt("Type confirm to reset your cloud data");
+  if (answer !== "confirm") return;
+
+  if (!confirm("Delete all your cloud tasks and history?")) return;
+
+  const { error } = await db.from("tasks")
+    .delete().eq("user_id", currentUser.id);
+
+  if (error) return alert(error.message);
+
+  appData = { goalDays: 30, testMode: false, history: {} };
+  await saveSettings();
+
+  tasks = [];
+  stagedTasks = [];
+  $("app").classList.remove("test-mode");
+  $("goalDaysInput").value = 30;
+
+  render();
+  renderDrawerPreview();
+  alert("Cloud data reset successfully.");
 }
 
-// Clear Today's Tasks
 function clearTodayTasks() {
   if (!confirm("Clear all tasks for today?")) return;
   stagedTasks = [];
   renderDrawerPreview();
 }
 
-// Render Main Table & Streak Stats
 function render() {
-  const list = document.getElementById("taskList");
+  const list = $("taskList");
   list.innerHTML = "";
 
-  if (tasks.length === 0) {
+  if (!tasks.length) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
     cell.colSpan = 3;
     cell.className = "empty";
-    cell.textContent = "No tasks for today. Open the 'Menu' to add new tasks!";
+    cell.textContent = "No tasks for today. Open the Menu to add tasks!";
     row.appendChild(cell);
     list.appendChild(row);
   }
 
   tasks.forEach(task => {
     const row = document.createElement("tr");
+    const name = document.createElement("td");
+    name.textContent = task.name;
 
-    const nameCell = document.createElement("td");
-    nameCell.textContent = task.name;
+    const status = document.createElement("td");
 
-    const statusCell = document.createElement("td");
-
-    if (task.status === "YES") {
-      const status = document.createElement("span");
-      status.className = "complete";
-      status.textContent = "✓ Complete";
-      statusCell.appendChild(status);
-    } else if (task.status === "NO") {
-      const status = document.createElement("span");
-      status.className = "incomplete";
-      status.textContent = "✕ Incomplete";
-      statusCell.appendChild(status);
+    if (task.status) {
+      const span = document.createElement("span");
+      span.className = task.status === "YES" ? "complete" : "incomplete";
+      span.textContent = task.status === "YES" ? "✓ Complete" : "✕ Incomplete";
+      status.appendChild(span);
     } else {
-      const yes = document.createElement("button");
-      yes.className = "yes";
-      yes.textContent = "YES";
-      yes.onclick = () => updateStatus(task.id, "YES");
-
-      const no = document.createElement("button");
-      no.className = "no";
-      no.textContent = "NO";
-      no.onclick = () => updateStatus(task.id, "NO");
-
-      statusCell.append(yes, no);
+      ["YES", "NO"].forEach(value => {
+        const button = document.createElement("button");
+        button.className = value.toLowerCase();
+        button.textContent = value;
+        button.onclick = () => updateStatus(task.id, value);
+        status.appendChild(button);
+      });
     }
 
-    const actionCell = document.createElement("td");
-    actionCell.className = "action";
+    const action = document.createElement("td");
+    action.className = "action";
 
     const edit = document.createElement("button");
     edit.className = "edit";
     edit.textContent = "✏️";
-    edit.title = "Edit Task";
     edit.onclick = () => editTask(task.id);
 
     const del = document.createElement("button");
     del.className = "delete";
     del.textContent = "🗑";
-    del.title = "Delete Task";
     del.onclick = () => deleteTask(task.id);
 
-    actionCell.append(edit, del);
-    row.append(nameCell, statusCell, actionCell);
+    action.append(edit, del);
+    row.append(name, status, action);
     list.appendChild(row);
   });
 
-  // Statistics Calculation
-  const totalCount = tasks.length;
-  const completedCount = tasks.filter(t => t.status === "YES").length;
-  const pendingCount = totalCount - completedCount;
+  const total = tasks.length;
+  const completed = tasks.filter(t => t.status === "YES").length;
 
-  document.getElementById("total").textContent = totalCount;
-  document.getElementById("completed").textContent = completedCount;
-  document.getElementById("pending").textContent = pendingCount;
+  $("total").textContent = total;
+  $("completed").textContent = completed;
+  $("pending").textContent = total - completed;
 
-  // Streak Calculation
-  let successfulDaysCount = 0;
-  for (let dateKey in appData.history) {
-    if (appData.history[dateKey] === true) {
-      successfulDaysCount++;
+  const successfulDays = Object.values(appData.history).filter(Boolean).length;
+  const streak = Math.min(successfulDays, appData.goalDays);
+  const percent = appData.goalDays > 0
+    ? Math.round(streak / appData.goalDays * 100) : 0;
+
+  $("streakRatioText").textContent = `${streak} / ${appData.goalDays}`;
+  $("streakPercentText").textContent = `${percent}%`;
+  $("goalProgressFill").style.width = `${percent}%`;
+}
+
+$("loginBtn").addEventListener("click", login);
+$("logoutBtn").addEventListener("click", logout);
+
+$("authPassword").addEventListener("keydown", e => {
+  if (e.key === "Enter") login();
+});
+
+$("taskInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") stageTask();
+});
+
+window.toggleMenu = toggleMenu;
+window.stageTask = stageTask;
+window.removeStagedTask = removeStagedTask;
+window.saveAndCloseMenu = saveAndCloseMenu;
+window.updateStatus = updateStatus;
+window.editTask = editTask;
+window.deleteTask = deleteTask;
+window.loadTest = loadTest;
+window.resetData = resetData;
+window.clearTodayTasks = clearTodayTasks;
+
+showApp(false);
+
+db.auth.onAuthStateChange((event, session) => {
+  if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+    currentUser = session?.user || null;
+
+    if (currentUser) {
+      setTimeout(initializeApp, 0);
+    } else {
+      showApp(false);
     }
   }
 
-  const currentStreak = Math.min(successfulDaysCount, appData.goalDays);
-  const percent = Math.round((currentStreak / appData.goalDays) * 100);
-
-  document.getElementById("streakRatioText").textContent = `${currentStreak} / ${appData.goalDays}`;
-  document.getElementById("streakPercentText").textContent = `${percent}%`;
-  document.getElementById("goalProgressFill").style.width = `${percent}%`;
-}
-
-// Enter key support for task input inside drawer
-document.getElementById("taskInput").addEventListener("keydown", function(e) {
-  if (e.key === "Enter") {
-    stageTask();
+  if (event === "SIGNED_OUT") {
+    currentUser = null;
+    tasks = [];
+    stagedTasks = [];
+    showApp(false);
   }
 });
 
-// Initial Render
-render();
 </script>
 
 </body>
