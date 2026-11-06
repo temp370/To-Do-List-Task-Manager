@@ -1,426 +1,334 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Daily Habit Tracker</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
-    button { cursor: pointer; font-weight: bold; border: 0; border-radius: 8px; padding: 10px 14px; }
-    button:disabled { opacity: .6; cursor: wait; }
-    .container { max-width: 900px; margin: auto; }
-    #authPanel { max-width: 420px; margin: 70px auto; padding: 25px; background: white; border-radius: 12px; box-shadow: 0 2px 12px #0002; }
-    #authPanel h2 { margin-bottom: 8px; }
-    #authPanel p { margin: 8px 0; }
-    .auth-input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 15px; }
-    .auth-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-    #loginBtn { background: #2563eb; color: white; }
-    #signupBtn { background: #16a34a; color: white; }
-    #authMessage { min-height: 20px; color: #b91c1c; font-size: 14px; overflow-wrap: anywhere; }
-    #logoutBar { max-width: 900px; margin: 0 auto 12px; text-align: right; }
-    #logoutBtn { background: #64748b; color: white; }
-    header { background: #172554; color: white; padding: 22px 25px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; box-shadow: 0 2px 4px #0002; }
-    header h1 { font-size: 22px; margin-bottom: 4px; }
-    header p { color: #cbd5e1; font-size: 13px; }
-    .menu-toggle-btn { background: #2563eb; color: white; white-space: nowrap; }
-    .drawer-overlay { position: fixed; inset: 0; background: #0008; display: none; z-index: 999; }
-    .drawer-overlay.active { display: block; }
-    .drawer-panel { position: fixed; top: 0; right: -380px; width: 360px; max-width: 100%; height: 100%; background: white; z-index: 1000; box-shadow: -4px 0 15px #0002; transition: right .3s ease; display: flex; flex-direction: column; padding: 24px; overflow-y: auto; }
-    .drawer-panel.active { right: 0; }
-    .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px; }
-    .close-drawer-btn { background: #e2e8f0; color: #334155; border-radius: 50%; width: 34px; height: 34px; padding: 0; }
-    .drawer-section { margin: 0 0 20px; }
-    .drawer-section h3 { font-size: 15px; color: #334155; margin-bottom: 10px; text-transform: uppercase; }
-    .drawer-input-group { display: flex; flex-direction: column; gap: 10px; }
-    .drawer-input-group input { padding: 11px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
-    .drawer-task-preview { max-height: 140px; overflow-y: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; }
-    .preview-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; font-size: 13px; border-bottom: 1px solid #edf2f7; overflow-wrap: anywhere; }
-    .preview-item:last-child { border-bottom: 0; }
-    .preview-item button { background: #fee2e2; color: #dc2626; padding: 4px 7px; font-size: 11px; }
-    .btn-primary { background: #2563eb; color: white; }
-    .btn-save-confirm { background: #16a34a; color: white; margin-top: auto; font-size: 15px; }
-    .btn-test { background: #7c3aed; color: white; }
-    .btn-clear { background: #64748b; color: white; }
-    .btn-danger { background: #dc2626; color: white; }
-    .goal-card, .stat, .table-box { background: white; box-shadow: 0 1px 3px #0002; }
-    .goal-card { padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-    .goal-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
-    .goal-progress-bar { background: #e2e8f0; border-radius: 8px; height: 16px; width: 100%; overflow: hidden; margin-top: 8px; }
-    .goal-progress-fill { background: #16a34a; height: 100%; width: 0; transition: width .4s ease; }
-    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-    .stat { padding: 18px; border-radius: 10px; text-align: center; }
-    .stat h2 { font-size: 25px; margin-bottom: 5px; }
-    .table-box { overflow-x: auto; border-radius: 12px; }
-    table { width: 100%; border-collapse: collapse; min-width: 450px; }
-    th, td { padding: 16px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-    th { background: #e2e8f0; }
-    .yes { background: #16a34a; color: white; margin-right: 5px; }
-    .no { background: #dc2626; color: white; }
-    .complete { color: #16a34a; font-weight: bold; }
-    .incomplete { color: #dc2626; font-weight: bold; }
-    .edit { background: #fef3c7; margin-right: 5px; }
-    .delete { background: #fee2e2; color: #dc2626; }
-    .action { white-space: nowrap; }
-    .empty { text-align: center; padding: 35px; color: #64748b; }
-    .test-label { display: none; color: #c084fc; font-size: 11px; margin-top: 4px; font-weight: bold; }
-    .test-mode .test-label { display: block; }
-    @media (max-width: 500px) { body { padding: 10px; } header { padding: 15px; align-items: flex-start; } header h1 { font-size: 18px; } .menu-toggle-btn { padding: 9px; font-size: 12px; } .stat h2 { font-size: 20px; } }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Habit Tracker</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
+.container { max-width: 900px; margin: auto; }
+header { background: #172554; color: white; padding: 22px 25px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+header h1 { font-size: 22px; margin-bottom: 4px; }
+header p { color: #94a3b8; font-size: 13px; }
+button { cursor: pointer; }
+.menu-toggle-btn { background: #2563eb; color: white; padding: 10px 16px; border-radius: 8px; font-size: 14px; border: none; font-weight: bold; display: flex; align-items: center; gap: 6px; transition: background .2s; }
+.menu-toggle-btn:hover { background: #1d4ed8; }
+.drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; z-index: 999; backdrop-filter: blur(2px); }
+.drawer-overlay.active { display: block; }
+.drawer-panel { position: fixed; top: 0; right: -380px; width: 360px; max-width:100%; height: 100%; background: white; z-index: 1000; box-shadow: -4px 0 15px rgba(0,0,0,.15); transition: right .3s ease; display: flex; flex-direction: column; padding: 25px; overflow-y: auto; }
+.drawer-panel.active { right: 0; }
+.drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px; }
+.close-drawer-btn { background: #e2e8f0; color: #334155; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 16px; font-weight: bold; }
+.drawer-section { margin-bottom: 20px; }
+.drawer-section h3 { font-size: 15px; color: #334155; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .5px; }
+.drawer-input-group { display: flex; flex-direction: column; gap: 10px; }
+.drawer-input-group input { padding: 11px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+.drawer-task-preview { max-height: 140px; overflow-y: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; margin-top: 8px; }
+.preview-item { display: flex; justify-content: space-between; align-items: center; gap:8px; padding: 6px 8px; font-size: 13px; border-bottom: 1px solid #edf2f7; overflow-wrap:anywhere; }
+.preview-item:last-child { border-bottom: none; }
+.preview-item button { background: #fee2e2; color: #dc2626; border: none; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+.btn-primary,.btn-save-confirm,.btn-test,.btn-clear,.btn-danger { color: white; padding: 10px; border-radius: 8px; border: none; font-weight: bold; }
+.btn-primary { background: #2563eb; }
+.btn-save-confirm { background: #16a34a; padding: 12px; margin-top: auto; font-size: 15px; }
+.btn-test { background: #7c3aed; }
+.btn-clear { background: #64748b; }
+.btn-danger { background: #dc2626; }
+.goal-card { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.goal-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
+.goal-progress-bar { background: #e2e8f0; border-radius: 8px; height: 16px; width: 100%; overflow: hidden; margin-top: 8px; }
+.goal-progress-fill { background: #16a34a; height: 100%; width: 0%; transition: width .4s ease; }
+.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 20px; }
+.stat { background: white; padding: 18px; border-radius: 10px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.stat h2 { font-size: 25px; margin-bottom: 5px; }
+.table-box { overflow-x: auto; border-radius: 12px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+table { width: 100%; border-collapse: collapse; min-width: 450px; }
+th,td { padding: 16px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+th { background: #e2e8f0; }
+.yes { background: #16a34a; color: white; margin-right: 5px; padding: 8px 12px; border-radius: 6px; border: none; font-weight: bold; }
+.no { background: #dc2626; color: white; padding: 8px 12px; border-radius: 6px; border: none; font-weight: bold; }
+.complete { color: #16a34a; font-weight: bold; }
+.incomplete { color: #dc2626; font-weight: bold; }
+.edit { background: #fef3c7; padding: 8px 10px; border-radius: 6px; border: none; }
+.delete { background: #fee2e2; color: #dc2626; padding: 8px 10px; border-radius: 6px; border: none; }
+.action { white-space: nowrap; }
+.empty { text-align: center; padding: 35px; color: #64748b; }
+.test-label { display: none; color: #c084fc; font-size: 11px; margin-top: 4px; font-weight: bold; }
+.test-mode .test-label { display: block; }
+#authPanel { max-width:420px; margin:70px auto; padding:25px; background:white; border-radius:12px; box-shadow:0 2px 12px #0002; }
+#authPanel input { width:100%; padding:12px; margin:8px 0; }
+#loginBtn { width:100%; padding:12px; margin-top:10px; }
+#authMessage { min-height:20px; overflow-wrap:anywhere; }
+.challenge-stats { margin: 14px 0 0; }
+.challenge-dates { font-weight:bold; color:#334155; }
+.level-track { height:12px; background:#e2e8f0; border-radius:8px; overflow:hidden; margin:8px 0; }
+.level-fill { height:100%; background:#7c3aed; transition:width .3s; }
+.calendar-legend { display:flex; flex-wrap:wrap; gap:12px; font-size:13px; color:#475569; margin:12px 0; }
+.legend-dot { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
+.calendar-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(38px,1fr)); gap:6px; }
+.calendar-day { min-height:38px; display:flex; align-items:center; justify-content:center; border-radius:6px; font-size:12px; font-weight:bold; color:#334155; background:#cbd5e1; }
+.calendar-day.present { background:#16a34a; color:white; }
+.calendar-day.absent { background:#dc2626; color:white; }
+.calendar-day.future,.calendar-day.not-started,.calendar-day.pending { background:#e2e8f0; color:#64748b; }
+button:disabled { opacity:.65; cursor:wait; }
+@media(max-width:500px) { body{padding:10px} header{padding:15px} header h1{font-size:19px} .stat h2{font-size:20px} .drawer-panel{width:100%;right:-100%} }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-  <div id="authPanel">
-    <h2>🔐 Personal Habit Tracker</h2>
-    <p>Login or create an account to access your personal tasks.</p>
-    <form id="authForm">
-      <input class="auth-input" id="authEmail" type="email" placeholder="Your email" autocomplete="email" required>
-      <input class="auth-input" id="authPassword" type="password" placeholder="Password (at least 6 characters)" autocomplete="current-password" minlength="6" required>
-      <div class="auth-actions">
-        <button id="loginBtn" type="submit">Login</button>
-        <button id="signupBtn" type="button">Create account</button>
-      </div>
-    </form>
-    <p id="authMessage" role="status" aria-live="polite"></p>
-  </div>
-
-  <div id="logoutBar" style="display:none"><button id="logoutBtn">Logout</button></div>
-
-  <div class="drawer-overlay" id="drawerOverlay"></div>
-  <aside class="drawer-panel" id="drawerPanel" aria-label="Menu and controls">
-    <div class="drawer-header"><h2>⚙️ Menu &amp; Controls</h2><button class="close-drawer-btn" id="closeDrawerBtn" aria-label="Close menu">✕</button></div>
-    <section class="drawer-section">
-      <h3>Add New Tasks</h3>
-      <div class="drawer-input-group">
-        <input id="taskInput" type="text" placeholder="Enter task name..." maxlength="200">
-        <button class="btn-primary" id="addTaskBtn">+ Add to List</button>
-        <div class="drawer-task-preview" id="drawerTaskPreview"></div>
-      </div>
-    </section>
-    <hr style="border:0;border-top:1px solid #e2e8f0;margin:0 0 20px">
-    <section class="drawer-section">
-      <h3>Target Goal Duration</h3>
-      <div class="drawer-input-group"><label for="goalDaysInput" style="font-size:13px;color:#64748b">Days Count (1–365)</label><input type="number" id="goalDaysInput" value="30" min="1" max="365"></div>
-    </section>
-    <hr style="border:0;border-top:1px solid #e2e8f0;margin:0 0 20px">
-    <section class="drawer-section">
-      <h3>Data Management</h3>
-      <div class="drawer-input-group">
-        <button class="btn-test" id="loadTestBtn">🧪 Load Test Data</button>
-        <button class="btn-clear" id="clearTodayBtn">🗑 Clear Today's Tasks</button>
-        <button class="btn-danger" id="resetBtn">↻ Secure Reset App</button>
-      </div>
-    </section>
-    <button class="btn-save-confirm" id="saveBtn">💾 Save &amp; Apply Changes</button>
-  </aside>
-
-  <main class="container" id="app" style="display:none">
-    <header>
-      <div><h1>📋 Daily Habit Tracker</h1><p>Complete all daily tasks to count your streak</p><div class="test-label">🧪 TEST MODE ACTIVE</div></div>
-      <button class="menu-toggle-btn" id="menuBtn">☰ Menu &amp; Actions</button>
-    </header>
-    <section class="goal-card">
-      <div class="goal-info"><div><strong>🔥 Streak Progress:</strong> <span id="streakRatioText" style="font-size:18px;font-weight:bold;color:#16a34a">0 / 30</span> Days</div><span id="streakPercentText" style="font-weight:bold;color:#475569">0%</span></div>
-      <div class="goal-progress-bar"><div class="goal-progress-fill" id="goalProgressFill"></div></div>
-    </section>
-    <section class="stats">
-      <div class="stat"><h2 id="total">0</h2><p>Total Tasks Today</p></div>
-      <div class="stat"><h2 id="completed" style="color:green">0</h2><p>Completed</p></div>
-      <div class="stat"><h2 id="pending" style="color:red">0</h2><p>Pending</p></div>
-    </section>
-    <div class="table-box"><table><thead><tr><th>Today's Task Item</th><th>Status</th><th>Action</th></tr></thead><tbody id="taskList"></tbody></table></div>
-  </main>
-
-  <script>
-    'use strict';
-    const SUPABASE_URL = 'https://mnlihedukpcslkqcqkfb.supabase.co';
-    const SUPABASE_KEY = 'sb_publishable_9wkFFYWsuNcFOqpdpcZJ8g_9yJ4zaQc';
-    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    const $ = id => document.getElementById(id);
-    let currentUser = null;
-    let todayDate = localDateString(new Date());
-    let tasks = [];
-    let stagedTasks = [];
-    let appData = { goalDays: 30, testMode: false, history: {} };
-    let initializing = false;
-
-    function localDateString(date) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-    function showApp(loggedIn) {
-      $('authPanel').style.display = loggedIn ? 'none' : 'block';
-      $('app').style.display = loggedIn ? 'block' : 'none';
-      $('logoutBar').style.display = loggedIn ? 'block' : 'none';
-    }
-    function showAuthMessage(message, isError = true) {
-      $('authMessage').textContent = message;
-      $('authMessage').style.color = isError ? '#b91c1c' : '#166534';
-    }
-    async function login(event) {
-      if (event) event.preventDefault();
-      const email = $('authEmail').value.trim();
-      const password = $('authPassword').value;
-      if (!email || !password) return showAuthMessage('Enter your email and password.');
-      setAuthBusy(true, 'Signing in...');
-      try {
-        const { error } = await db.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        showAuthMessage('Login successful. Loading your tasks...', false);
-      } catch (error) {
-        showAuthMessage(error.message || 'Login failed. Please try again.');
-      } finally { setAuthBusy(false); }
-    }
-    async function signup() {
-      const email = $('authEmail').value.trim();
-      const password = $('authPassword').value;
-      if (!email || !password) return showAuthMessage('Enter your email and password first.');
-      if (password.length < 6) return showAuthMessage('Password must be at least 6 characters.');
-      setAuthBusy(true, 'Creating account...');
-      try {
-        const { data, error } = await db.auth.signUp({ email, password });
-        if (error) throw error;
-        if (data.session) showAuthMessage('Account created. You are now signed in.', false);
-        else showAuthMessage('Account created. Check your email to confirm the account, then log in.', false);
-      } catch (error) {
-        showAuthMessage(error.message || 'Could not create account. Please try again.');
-      } finally { setAuthBusy(false); }
-    }
-    function setAuthBusy(busy, message) {
-      $('loginBtn').disabled = busy;
-      $('signupBtn').disabled = busy;
-      if (message) showAuthMessage(message, false);
-    }
-    async function logout() {
-      try {
-        const { error } = await db.auth.signOut();
-        if (error) throw error;
-      } catch (error) { alert('Logout failed: ' + error.message); }
-    }
-    async function saveSettings() {
-      if (!currentUser) throw new Error('You are not logged in. Please log in again.');
-      const { error } = await db.from('app_settings').upsert({
-        user_id: currentUser.id, goal_days: appData.goalDays,
-        test_mode: appData.testMode, history: appData.history
-      }, { onConflict: 'user_id' });
-      if (error) throw error;
-    }
-    async function loadSettings() {
-      const { data, error } = await db.from('app_settings').select('*').eq('user_id', currentUser.id).maybeSingle();
-      if (error) throw error;
-      if (data) {
-        appData = {
-          goalDays: Number(data.goal_days) || 30,
-          testMode: Boolean(data.test_mode),
-          history: data.history && typeof data.history === 'object' ? data.history : {}
-        };
-      } else {
-        appData = { goalDays: 30, testMode: false, history: {} };
-        await saveSettings();
-      }
-    }
-    async function loadTasks() {
-      const { data, error } = await db.from('tasks').select('*').eq('user_id', currentUser.id).eq('task_date', todayDate).order('created_at');
-      if (error) throw error;
-      tasks = (data || []).map(task => ({ id: task.id, name: task.name, status: task.status || '' }));
-      stagedTasks = tasks.map(task => ({ ...task }));
-    }
-    async function initializeApp() {
-      if (initializing || !currentUser) return;
-      initializing = true;
-      showApp(true);
-      try {
-        todayDate = localDateString(new Date());
-        await loadSettings();
-        await loadTasks();
-        $('goalDaysInput').value = appData.goalDays;
-        $('app').classList.toggle('test-mode', appData.testMode);
-        render();
-        renderDrawerPreview();
-      } catch (error) {
-        console.error('App loading error:', error);
-        alert('Could not load your data. Check your Supabase tables and Row Level Security policies. Details: ' + error.message);
-      } finally { initializing = false; }
-    }
-    function toggleMenu(forceClose = false) {
-      const shouldOpen = !forceClose && !$('drawerPanel').classList.contains('active');
-      if (shouldOpen) {
-        stagedTasks = tasks.map(task => ({ ...task }));
-        $('goalDaysInput').value = appData.goalDays;
-        renderDrawerPreview();
-      }
-      $('drawerPanel').classList.toggle('active', shouldOpen);
-      $('drawerOverlay').classList.toggle('active', shouldOpen);
-    }
-    function stageTask() {
-      const input = $('taskInput');
-      const name = input.value.trim();
-      if (!name) return alert('Please enter a task name.');
-      stagedTasks.push({ id: null, name, status: '' });
-      input.value = '';
-      renderDrawerPreview();
-      input.focus();
-    }
-    function removeStagedTask(index) {
-      stagedTasks.splice(index, 1);
-      renderDrawerPreview();
-    }
-    function renderDrawerPreview() {
-      const container = $('drawerTaskPreview');
-      container.replaceChildren();
-      if (!stagedTasks.length) { container.textContent = 'No tasks added yet'; return; }
-      stagedTasks.forEach((task, index) => {
-        const item = document.createElement('div'); item.className = 'preview-item';
-        const name = document.createElement('span'); name.textContent = task.name;
-        const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Remove';
-        button.addEventListener('click', () => removeStagedTask(index));
-        item.append(name, button); container.appendChild(item);
-      });
-    }
-    async function saveAndCloseMenu() {
-      if (!currentUser) return alert('Please log in again.');
-      const goal = Number.parseInt($('goalDaysInput').value, 10);
-      if (!Number.isInteger(goal) || goal < 1 || goal > 365) return alert('Goal days must be between 1 and 365.');
-      appData.goalDays = goal;
-      $('saveBtn').disabled = true;
-      try {
-        const { error: deleteError } = await db.from('tasks').delete().eq('user_id', currentUser.id).eq('task_date', todayDate);
-        if (deleteError) throw deleteError;
-        if (stagedTasks.length) {
-          const rows = stagedTasks.map(task => ({ user_id: currentUser.id, task_date: todayDate, name: task.name, status: task.status || '' }));
-          const { error } = await db.from('tasks').insert(rows);
-          if (error) throw error;
-        }
-        await loadTasks();
-        checkDayCompletion();
-        await saveSettings();
-        render();
-        toggleMenu(true);
-      } catch (error) {
-        alert('Save failed: ' + error.message);
-        try { await loadTasks(); render(); } catch (reloadError) { console.error(reloadError); }
-      } finally { $('saveBtn').disabled = false; }
-    }
-    async function updateStatus(id, status) {
-      const task = tasks.find(item => item.id === id);
-      if (!task || task.status || !currentUser) return;
-      const { error } = await db.from('tasks').update({ status }).eq('id', id).eq('user_id', currentUser.id);
-      if (error) return alert(error.message);
-      task.status = status;
-      checkDayCompletion();
-      try { await saveSettings(); } catch (error) { alert('Status saved, but settings could not be saved: ' + error.message); }
-      render();
-    }
-    function checkDayCompletion() {
-      appData.history[todayDate] = tasks.length > 0 && tasks.every(task => task.status === 'YES');
-    }
-    async function editTask(id) {
-      const task = tasks.find(item => item.id === id);
-      if (!task) return;
-      const name = prompt('Edit task:', task.name);
-      if (name === null || !name.trim()) return;
-      const cleanName = name.trim();
-      const { error } = await db.from('tasks').update({ name: cleanName }).eq('id', id).eq('user_id', currentUser.id);
-      if (error) return alert(error.message);
-      task.name = cleanName;
-      checkDayCompletion();
-      try { await saveSettings(); } catch (saveError) { alert(saveError.message); }
-      render();
-    }
-    async function deleteTask(id) {
-      if (!confirm('Are you sure you want to delete this task?')) return;
-      const { error } = await db.from('tasks').delete().eq('id', id).eq('user_id', currentUser.id);
-      if (error) return alert(error.message);
-      tasks = tasks.filter(task => task.id !== id);
-      checkDayCompletion();
-      try { await saveSettings(); } catch (saveError) { alert(saveError.message); }
-      render();
-    }
-    function loadTest() {
-      if (!confirm('Load sample test tasks? These replace today’s staged task list when you save.')) return;
-      appData.testMode = true;
-      appData.goalDays = 30;
-      $('goalDaysInput').value = 30;
-      $('app').classList.add('test-mode');
-      stagedTasks = [
-        { id: null, name: 'Morning Routine & Exercise', status: 'YES' },
-        { id: null, name: 'Code Review & Refactoring', status: 'YES' },
-        { id: null, name: 'Deploy to Production', status: 'YES' }
-      ];
-      renderDrawerPreview();
-    }
-    async function resetData() {
-      if (prompt('Type confirm to reset your cloud data') !== 'confirm') return;
-      if (!confirm('Delete all your cloud tasks and history? This cannot be undone.')) return;
-      const { error } = await db.from('tasks').delete().eq('user_id', currentUser.id);
-      if (error) return alert(error.message);
-      appData = { goalDays: 30, testMode: false, history: {} };
-      try { await saveSettings(); } catch (saveError) { return alert('Tasks deleted, but settings reset failed: ' + saveError.message); }
-      tasks = []; stagedTasks = [];
-      $('app').classList.remove('test-mode'); $('goalDaysInput').value = 30;
-      render(); renderDrawerPreview(); alert('Cloud data reset successfully.');
-    }
-    function clearTodayTasks() {
-      if (!confirm('Clear all tasks for today? Click Save & Apply Changes to confirm.')) return;
-      stagedTasks = []; renderDrawerPreview();
-    }
-    function render() {
-      const list = $('taskList'); list.replaceChildren();
-      if (!tasks.length) {
-        const row = document.createElement('tr'); const cell = document.createElement('td');
-        cell.colSpan = 3; cell.className = 'empty'; cell.textContent = 'No tasks for today. Open the Menu to add tasks!';
-        row.appendChild(cell); list.appendChild(row);
-      }
-      tasks.forEach(task => {
-        const row = document.createElement('tr'); const name = document.createElement('td'); name.textContent = task.name;
-        const status = document.createElement('td');
-        if (task.status) {
-          const label = document.createElement('span'); label.className = task.status === 'YES' ? 'complete' : 'incomplete';
-          label.textContent = task.status === 'YES' ? '✓ Complete' : '✕ Incomplete'; status.appendChild(label);
-        } else {
-          ['YES', 'NO'].forEach(value => { const button = document.createElement('button'); button.className = value.toLowerCase(); button.textContent = value; button.addEventListener('click', () => updateStatus(task.id, value)); status.appendChild(button); });
-        }
-        const action = document.createElement('td'); action.className = 'action';
-        const edit = document.createElement('button'); edit.className = 'edit'; edit.textContent = '✏️'; edit.setAttribute('aria-label', 'Edit task'); edit.addEventListener('click', () => editTask(task.id));
-        const del = document.createElement('button'); del.className = 'delete'; del.textContent = '🗑'; del.setAttribute('aria-label', 'Delete task'); del.addEventListener('click', () => deleteTask(task.id));
-        action.append(edit, del); row.append(name, status, action); list.appendChild(row);
-      });
-      const total = tasks.length; const completed = tasks.filter(task => task.status === 'YES').length;
-      $('total').textContent = total; $('completed').textContent = completed; $('pending').textContent = total - completed;
-      const successfulDays = Object.values(appData.history).filter(Boolean).length;
-      const goal = Number(appData.goalDays) || 30; const streak = Math.min(successfulDays, goal);
-      const percent = Math.round(streak / goal * 100);
-      $('streakRatioText').textContent = `${streak} / ${goal}`;
-      $('streakPercentText').textContent = `${percent}%`;
-      $('goalProgressFill').style.width = `${percent}%`;
-    }
-
-    $('authForm').addEventListener('submit', login);
-    $('signupBtn').addEventListener('click', signup);
-    $('logoutBtn').addEventListener('click', logout);
-    $('menuBtn').addEventListener('click', () => toggleMenu());
-    $('closeDrawerBtn').addEventListener('click', () => toggleMenu(true));
-    $('drawerOverlay').addEventListener('click', () => toggleMenu(true));
-    $('addTaskBtn').addEventListener('click', stageTask);
-    $('taskInput').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); stageTask(); } });
-    $('saveBtn').addEventListener('click', saveAndCloseMenu);
-    $('loadTestBtn').addEventListener('click', loadTest);
-    $('clearTodayBtn').addEventListener('click', clearTodayTasks);
-    $('resetBtn').addEventListener('click', resetData);
-
-    showApp(false);
-    db.auth.onAuthStateChange((event, session) => {
-      currentUser = session?.user || null;
-      if (currentUser) {
-        showApp(true);
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') setTimeout(initializeApp, 0);
-      } else {
-        tasks = []; stagedTasks = []; appData = { goalDays: 30, testMode: false, history: {} };
-        showApp(false);
-      }
-    });
-  </script>
+<div id="authPanel">
+  <h2>🔐 Personal Habit Tracker</h2><p>Login to access your personal tasks</p>
+  <input id="authEmail" type="email" placeholder="Your Email" autocomplete="email">
+  <input id="authPassword" type="password" placeholder="Your Password" autocomplete="current-password">
+  <button id="loginBtn">Login</button><p id="authMessage" role="status" aria-live="polite"></p>
+</div>
+<div id="logoutBar" style="display:none;text-align:right"><button id="logoutBtn">Logout</button></div>
+<div class="drawer-overlay" id="drawerOverlay" onclick="toggleMenu(true)"></div>
+<div class="drawer-panel" id="drawerPanel">
+  <div class="drawer-header"><h2>⚙️ Menu &amp; Controls</h2><button class="close-drawer-btn" onclick="toggleMenu(true)">✕</button></div>
+  <div class="drawer-section"><h3>Add New Tasks</h3><div class="drawer-input-group">
+    <input id="taskInput" type="text" placeholder="Enter task name..." maxlength="200">
+    <button class="btn-primary" onclick="stageTask()">+ Add to List</button>
+    <div class="drawer-task-preview" id="drawerTaskPreview"></div>
+  </div></div>
+  <hr style="border:0;border-top:1px solid #e2e8f0;margin:10px 0">
+  <div class="drawer-section"><h3>Challenge Settings</h3><div class="drawer-input-group">
+    <p id="challengeLockMessage" style="font-size:13px;color:#64748b">Set your goal duration and start date. They stay fixed until you start a new challenge.</p>
+    <label for="goalStartDateInput" style="font-size:13px;color:#64748b">Challenge Start Date</label>
+    <input type="date" id="goalStartDateInput">
+    <label for="goalDaysInput" style="font-size:13px;color:#64748b">Goal Days (1–365)</label>
+    <input type="number" id="goalDaysInput" value="30" min="1" max="365">
+    <button class="btn-primary" id="newChallengeBtn" type="button">＋ Start New Challenge</button>
+  </div></div>
+  <hr style="border:0;border-top:1px solid #e2e8f0;margin:10px 0">
+  <div class="drawer-section"><h3>Data Management</h3><div class="drawer-input-group">
+    <button class="btn-test" onclick="loadTest()">🧪 Load Test Data</button>
+    <button class="btn-clear" onclick="clearTodayTasks()">🗑 Clear Today's Tasks</button>
+    <button class="btn-danger" onclick="resetData()">↻ Secure Reset App</button>
+  </div></div>
+  <button class="btn-save-confirm" onclick="saveAndCloseMenu()">💾 Save &amp; Apply Changes</button>
+</div>
+<main class="container" id="app" style="display:none">
+  <header><div><h1>📋 Daily Habit Tracker</h1><p>Complete all daily tasks to count your streak</p><div class="test-label">🧪 TEST MODE ACTIVE</div></div><button class="menu-toggle-btn" onclick="toggleMenu()">☰ Menu &amp; Actions</button></header>
+  <section class="goal-card">
+    <div class="goal-info"><div><strong>🔥 Challenge Progress:</strong> <span id="streakRatioText" style="font-size:18px;font-weight:bold;color:#16a34a">0 / 30</span> Days</div><span id="streakPercentText" style="font-weight:bold;color:#475569">0%</span></div>
+    <div class="goal-progress-bar"><div class="goal-progress-fill" id="goalProgressFill"></div></div>
+  </section>
+  <section class="goal-card" aria-label="Attendance and challenge summary">
+    <div class="goal-info"><strong>📅 Challenge Attendance</strong><span id="challengeDateRange" class="challenge-dates">Challenge not started</span></div>
+    <div class="stats challenge-stats">
+      <div class="stat"><h2 id="totalDays">0</h2><p>Total Days</p></div>
+      <div class="stat"><h2 id="presentDays" style="color:green">0</h2><p>Present</p></div>
+      <div class="stat"><h2 id="absentDays" style="color:red">0</h2><p>Absent</p></div>
+    </div>
+    <div class="stats challenge-stats">
+      <div class="stat"><h2 id="remainingDays">0</h2><p>Remaining Days</p></div>
+      <div class="stat"><h2 id="attendancePercent">0%</h2><p>Attendance</p></div>
+      <div class="stat"><h2 id="xpCount">0</h2><p>XP</p></div>
+    </div>
+    <div class="goal-info"><strong>🏆 Level <span id="levelText">1</span></strong><span id="levelXpText">0 / 100 XP to next level</span></div>
+    <div class="level-track"><div id="levelProgressFill" class="level-fill"></div></div>
+    <div class="calendar-legend">
+      <span><i class="legend-dot" style="background:#16a34a"></i>Present</span>
+      <span><i class="legend-dot" style="background:#dc2626"></i>Absent</span>
+      <span><i class="legend-dot" style="background:#e2e8f0"></i>Future / Not started</span>
+    </div>
+    <div id="attendanceCalendar" class="calendar-grid"></div>
+  </section>
+  <section class="stats">
+    <div class="stat"><h2 id="total">0</h2><p>Total Tasks Today</p></div>
+    <div class="stat"><h2 id="completed" style="color:green">0</h2><p>Completed</p></div>
+    <div class="stat"><h2 id="pending" style="color:red">0</h2><p>Pending</p></div>
+  </section>
+  <div class="table-box"><table><thead><tr><th>Today's Task Item</th><th>Status</th><th>Action</th></tr></thead><tbody id="taskList"></tbody></table></div>
+</main>
+<script>
+'use strict';
+const SUPABASE_URL = 'https://mnlihedukpcslkqcqkfb.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_9wkFFYWsuNcFOqpdpcZJ8g_9yJ4zaQc';
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+let currentUser = null, todayDate = localDateString(new Date()), tasks = [], stagedTasks = [];
+let appData = { goalDays:30, testMode:false, history:{}, challenge:null, attendance:{}, xp:0 };
+let initializing = false;
+function localDateString(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function addDays(date, amount) { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate()+amount); return localDateString(d); }
+function dateDiff(a,b) { return Math.round((Date.parse(`${b}T12:00:00`)-Date.parse(`${a}T12:00:00`))/86400000); }
+function prettyDate(date) { if(!date) return '—'; return new Intl.DateTimeFormat(undefined,{year:'numeric',month:'short',day:'numeric'}).format(new Date(`${date}T12:00:00`)); }
+function showApp(on) { $('authPanel').style.display=on?'none':'block'; $('app').style.display=on?'block':'none'; $('logoutBar').style.display=on?'block':'none'; }
+function authMessage(message,error=true) { $('authMessage').textContent=message; $('authMessage').style.color=error?'#b91c1c':'#166534'; }
+async function login() {
+  const email=$('authEmail').value.trim(), password=$('authPassword').value;
+  if(!email||!password) return authMessage('Enter email and password.');
+  $('loginBtn').disabled=true; authMessage('Signing in...',false);
+  try { const {error}=await db.auth.signInWithPassword({email,password}); if(error) throw error; }
+  catch(e) { authMessage(e.message||'Login failed.'); }
+  finally { $('loginBtn').disabled=false; }
+}
+async function logout() { const {error}=await db.auth.signOut(); if(error) alert(error.message); }
+async function saveSettings() {
+  if(!currentUser) throw new Error('Please log in again.');
+  const {error}=await db.from('app_settings').upsert({user_id:currentUser.id,goal_days:appData.goalDays,test_mode:appData.testMode,history:appData.history||{}},{onConflict:'user_id'});
+  if(error) throw error;
+}
+async function loadSettings() {
+  const {data,error}=await db.from('app_settings').select('*').eq('user_id',currentUser.id).maybeSingle();
+  if(error) throw error;
+  if(data) appData={...appData,goalDays:Number(data.goal_days)||30,testMode:!!data.test_mode,history:data.history&&typeof data.history==='object'?data.history:{}};
+  else { appData={...appData,goalDays:30,testMode:false,history:{}}; await saveSettings(); }
+  const result=await db.from('habit_challenges').select('*').eq('user_id',currentUser.id).eq('is_active',true).maybeSingle();
+  if(result.error) throw new Error(`Challenge table query failed: ${result.error.message}. Run the SQL migration first.`);
+  appData.challenge=result.data||null;
+  if(appData.challenge) { appData.goalDays=Number(appData.challenge.goal_days)||30; appData.attendance=appData.challenge.attendance||{}; appData.xp=Number(appData.challenge.xp)||0; }
+}
+async function loadTasks() {
+  const {data,error}=await db.from('tasks').select('*').eq('user_id',currentUser.id).eq('task_date',todayDate).order('created_at');
+  if(error) throw error;
+  tasks=(data||[]).map(t=>({id:t.id,name:t.name,status:t.status||''})); stagedTasks=tasks.map(t=>({...t}));
+}
+async function syncAttendanceAndXp() {
+  if(!currentUser||!appData.challenge) return;
+  const c=appData.challenge, today=localDateString(new Date());
+  const {data,error}=await db.from('tasks').select('task_date,status').eq('user_id',currentUser.id).gte('task_date',c.start_date).lte('task_date',c.end_date);
+  if(error) throw error;
+  const byDay={}, attendance={}; let xp=0;
+  (data||[]).forEach(t=>{ (byDay[t.task_date] ||= []).push(t); if(t.status==='YES') xp+=10; });
+  for(let i=0;i<c.goal_days;i++) {
+    const day=addDays(c.start_date,i), daily=byDay[day]||[];
+    if(day<today) attendance[day]=daily.length&&daily.every(t=>t.status==='YES')?'present':'absent';
+    else if(day===today) attendance[day]=daily.length&&daily.every(t=>t.status==='YES')?'present':'pending';
+    else attendance[day]=day<c.start_date?'not-started':'future';
+  }
+  appData.attendance=attendance;
+  appData.xp=Math.max(Number(c.xp)||0,xp);
+  const {error:saveError}=await db.rpc('save_habit_challenge_progress',{p_challenge_id:c.id,p_attendance:attendance,p_xp:appData.xp});
+  if(saveError) throw saveError;
+  appData.challenge={...c,attendance,xp:appData.xp};
+  appData.history={...(appData.history||{})};
+  Object.entries(attendance).forEach(([day,state])=>{if(state==='present')appData.history[day]=true;});
+  await saveSettings();
+}
+async function initializeApp() {
+  if(initializing||!currentUser) return; initializing=true; todayDate=localDateString(new Date()); showApp(true);
+  try {
+    await loadSettings(); await loadTasks();
+    $('goalDaysInput').value=appData.goalDays;
+    $('goalStartDateInput').value=appData.challenge?.start_date||todayDate;
+    $('goalStartDateInput').disabled=!!appData.challenge;
+    $('goalDaysInput').disabled=!!appData.challenge;
+    $('challengeLockMessage').textContent=appData.challenge?'Challenge dates are fixed. Start a new challenge to change them.':'Choose your goal duration and start date, then start the challenge.';
+    $('app').classList.toggle('test-mode',appData.testMode);
+    if(appData.challenge) await syncAttendanceAndXp();
+    render(); renderDrawerPreview();
+  } catch(e) { console.error(e); alert('Loading error: '+e.message); }
+  finally { initializing=false; }
+}
+function toggleMenu(forceClose=false) {
+  const open=!forceClose&&!$('drawerPanel').classList.contains('active');
+  if(open) { stagedTasks=tasks.map(t=>({...t})); if(!appData.challenge){$('goalDaysInput').value=appData.goalDays;$('goalStartDateInput').value=todayDate;} renderDrawerPreview(); }
+  $('drawerPanel').classList.toggle('active',open); $('drawerOverlay').classList.toggle('active',open);
+}
+function stageTask() { const input=$('taskInput'),name=input.value.trim(); if(!name)return alert('Please enter a task name!'); stagedTasks.push({id:null,name,status:''});input.value='';renderDrawerPreview(); }
+function removeStagedTask(i) { stagedTasks.splice(i,1);renderDrawerPreview(); }
+function renderDrawerPreview() {
+  const box=$('drawerTaskPreview');box.replaceChildren();if(!stagedTasks.length){box.textContent='No tasks added yet';return;}
+  stagedTasks.forEach((task,i)=>{const item=document.createElement('div');item.className='preview-item';const name=document.createElement('span');name.textContent=task.name;const btn=document.createElement('button');btn.textContent='Remove';btn.onclick=()=>removeStagedTask(i);item.append(name,btn);box.appendChild(item);});
+}
+async function startNewChallenge() {
+  if(!currentUser)return alert('Please log in.');
+  const start=$('goalStartDateInput').value,goal=Number($('goalDaysInput').value);
+  if(!start||!Number.isInteger(goal)||goal<1||goal>365)return alert('Choose a start date and a goal between 1 and 365 days.');
+  const end=addDays(start,goal-1);
+  if(!confirm(`Start a new ${goal}-day challenge?\n${prettyDate(start)} to ${prettyDate(end)}\nPrevious challenges are kept in the cloud.`))return;
+  $('newChallengeBtn').disabled=true;
+  try {
+    const {data,error}=await db.rpc('start_habit_challenge',{p_goal_days:goal,p_start_date:start});
+    if(error)throw error;
+    appData.challenge=Array.isArray(data)?data[0]:data;appData.goalDays=goal;appData.attendance={};appData.xp=0;appData.history={};
+    await saveSettings();await syncAttendanceAndXp();
+    $('goalDaysInput').disabled=true;$('goalStartDateInput').disabled=true;
+    $('challengeLockMessage').textContent='Challenge dates are fixed. Start a new challenge to change them.';
+    render();alert(`Challenge started!\nStart: ${prettyDate(start)}\nEnd: ${prettyDate(end)}`);
+  } catch(e) { alert('Could not start challenge: '+e.message); }
+  finally {$('newChallengeBtn').disabled=false;}
+}
+async function saveAndCloseMenu() {
+  if(!currentUser)return alert('Please log in again.');
+  $('saveBtn')?.setAttribute('disabled','disabled');
+  try {
+    const {error:delError}=await db.from('tasks').delete().eq('user_id',currentUser.id).eq('task_date',todayDate);if(delError)throw delError;
+    if(stagedTasks.length){const rows=stagedTasks.map(t=>({user_id:currentUser.id,task_date:todayDate,name:t.name,status:t.status||''}));const {error}=await db.from('tasks').insert(rows);if(error)throw error;}
+    await loadTasks();if(appData.challenge)await syncAttendanceAndXp();await saveSettings();render();toggleMenu(true);
+  } catch(e) {alert('Save failed: '+e.message);try{await loadTasks();render();}catch(reloadError){console.error(reloadError);}}
+  finally {$('saveBtn')?.removeAttribute('disabled');}
+}
+async function updateStatus(id,status) {
+  const task=tasks.find(t=>t.id===id);if(!task||task.status||!currentUser)return;
+  const {error}=await db.from('tasks').update({status}).eq('id',id).eq('user_id',currentUser.id);if(error)return alert(error.message);
+  task.status=status;
+  try {if(appData.challenge)await syncAttendanceAndXp();await saveSettings();render();}catch(e){alert('Saved task, but attendance sync failed: '+e.message);}
+}
+async function editTask(id) {
+  const task=tasks.find(t=>t.id===id);if(!task)return;const name=prompt('Edit Task:',task.name);if(name===null||!name.trim())return;
+  const {error}=await db.from('tasks').update({name:name.trim()}).eq('id',id).eq('user_id',currentUser.id);if(error)return alert(error.message);
+  task.name=name.trim();try{if(appData.challenge)await syncAttendanceAndXp();render();}catch(e){alert(e.message);}
+}
+async function deleteTask(id) {
+  if(!confirm('Are you sure you want to delete this task?'))return;
+  const {error}=await db.from('tasks').delete().eq('id',id).eq('user_id',currentUser.id);if(error)return alert(error.message);
+  tasks=tasks.filter(t=>t.id!==id);try{if(appData.challenge)await syncAttendanceAndXp();render();}catch(e){alert(e.message);}
+}
+function loadTest() {
+  if(!confirm('Load sample test tasks? Saving will replace today’s task list.'))return;
+  appData.testMode=true;$('app').classList.add('test-mode');stagedTasks=[
+    {id:null,name:'Morning Routine & Exercise',status:'YES'},
+    {id:null,name:'Code Review & Refactoring',status:'YES'},
+    {id:null,name:'Deploy to Production',status:'YES'}
+  ];renderDrawerPreview();
+}
+async function resetData() {
+  const answer=prompt('Type confirm to reset your cloud data');if(answer!=='confirm')return;
+  if(!confirm('Delete all your cloud tasks and end the active challenge? Previous challenge records remain.'))return;
+  try {
+    const {error}=await db.from('tasks').delete().eq('user_id',currentUser.id);if(error)throw error;
+    if(appData.challenge){const {error:rpcError}=await db.from('habit_challenges').update({is_active:false}).eq('id',appData.challenge.id).eq('user_id',currentUser.id);if(rpcError)throw rpcError;}
+    appData={goalDays:30,testMode:false,history:{},challenge:null,attendance:{},xp:0};tasks=[];stagedTasks=[];
+    await saveSettings();$('app').classList.remove('test-mode');$('goalDaysInput').disabled=false;$('goalStartDateInput').disabled=false;$('goalDaysInput').value=30;$('goalStartDateInput').value=todayDate;
+    $('challengeLockMessage').textContent='Choose your goal duration and start date, then start the challenge.';render();renderDrawerPreview();alert('App data reset. Previous challenge history was retained.');
+  } catch(e){alert('Reset failed: '+e.message);}
+}
+function clearTodayTasks(){if(!confirm('Clear all tasks for today? Click Save & Apply Changes to confirm.'))return;stagedTasks=[];renderDrawerPreview();}
+function renderCalendar() {
+  const grid=$('attendanceCalendar');grid.replaceChildren();const c=appData.challenge;
+  if(!c){grid.textContent='Start a challenge from Menu & Actions to see your attendance calendar.';return;}
+  const today=localDateString(new Date());
+  for(let i=0;i<c.goal_days;i++) {
+    const day=addDays(c.start_date,i),status=appData.attendance[day]||(day>today?'future':day<today?'absent':'pending');
+    const tile=document.createElement('div');tile.className='calendar-day '+(status==='present'?'present':status==='absent'?'absent':status==='not-started'?'not-started':status==='pending'?'pending':'future');
+    tile.textContent=String(i+1);tile.title=`Day ${i+1} · ${prettyDate(day)} · ${status}`;tile.setAttribute('aria-label',tile.title);grid.appendChild(tile);
+  }
+}
+function render() {
+  const list=$('taskList');list.replaceChildren();
+  if(!tasks.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=3;cell.className='empty';cell.textContent='No tasks for today. Open the Menu to add tasks!';row.appendChild(cell);list.appendChild(row);}
+  tasks.forEach(task=>{
+    const row=document.createElement('tr'),name=document.createElement('td');name.textContent=task.name;const status=document.createElement('td');
+    if(task.status){const span=document.createElement('span');span.className=task.status==='YES'?'complete':'incomplete';span.textContent=task.status==='YES'?'✓ Complete':'✕ Incomplete';status.appendChild(span);}
+    else ['YES','NO'].forEach(value=>{const btn=document.createElement('button');btn.className=value.toLowerCase();btn.textContent=value;btn.onclick=()=>updateStatus(task.id,value);status.appendChild(btn);});
+    const action=document.createElement('td');action.className='action';const edit=document.createElement('button');edit.className='edit';edit.textContent='✏️';edit.setAttribute('aria-label','Edit task');edit.onclick=()=>editTask(task.id);const del=document.createElement('button');del.className='delete';del.textContent='🗑';del.setAttribute('aria-label','Delete task');del.onclick=()=>deleteTask(task.id);action.append(edit,del);row.append(name,status,action);list.appendChild(row);
+  });
+  const total=tasks.length,completed=tasks.filter(t=>t.status==='YES').length;$('total').textContent=total;$('completed').textContent=completed;$('pending').textContent=total-completed;
+  const c=appData.challenge;
+  if(!c){$('challengeDateRange').textContent='Challenge not started';$('totalDays').textContent=0;$('presentDays').textContent=0;$('absentDays').textContent=0;$('remainingDays').textContent=0;$('attendancePercent').textContent='0%';$('xpCount').textContent=0;$('levelText').textContent=1;$('levelXpText').textContent='0 / 100 XP to next level';$('levelProgressFill').style.width='0%';$('streakRatioText').textContent='0 / '+appData.goalDays;$('streakPercentText').textContent='0%';$('goalProgressFill').style.width='0%';renderCalendar();return;}
+  const vals=Object.values(appData.attendance),present=vals.filter(v=>v==='present').length,absent=vals.filter(v=>v==='absent').length;
+  const today=localDateString(new Date()),elapsed=Math.max(0,Math.min(c.goal_days,dateDiff(c.start_date,today)+1)),remaining=Math.max(0,c.goal_days-present-absent),pct=elapsed?Math.round(present/elapsed*100):0;
+  const xp=Number(appData.xp)||0,level=Math.floor(xp/100)+1,levelProgress=xp%100;
+  $('challengeDateRange').textContent=`${prettyDate(c.start_date)} → ${prettyDate(c.end_date)}`;$('totalDays').textContent=c.goal_days;$('presentDays').textContent=present;$('absentDays').textContent=absent;$('remainingDays').textContent=remaining;$('attendancePercent').textContent=`${pct}%`;$('xpCount').textContent=xp;$('levelText').textContent=level;$('levelXpText').textContent=`${levelProgress} / 100 XP to next level`;$('levelProgressFill').style.width=`${levelProgress}%`;
+  $('streakRatioText').textContent=`${present} / ${c.goal_days}`;$('streakPercentText').textContent=`${Math.round(present/c.goal_days*100)}%`;$('goalProgressFill').style.width=`${Math.round(present/c.goal_days*100)}%`;renderCalendar();
+}
+$('loginBtn').addEventListener('click',login);$('authPassword').addEventListener('keydown',e=>{if(e.key==='Enter')login();});$('logoutBtn').addEventListener('click',logout);$('taskInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();stageTask();}});$('newChallengeBtn').addEventListener('click',startNewChallenge);
+showApp(false);
+db.auth.onAuthStateChange((event,session)=>{currentUser=session?.user||null;if(currentUser){setTimeout(initializeApp,0);}else{tasks=[];stagedTasks=[];appData={goalDays:30,testMode:false,history:{},challenge:null,attendance:{},xp:0};showApp(false);}});
+</script>
 </body>
 </html>
