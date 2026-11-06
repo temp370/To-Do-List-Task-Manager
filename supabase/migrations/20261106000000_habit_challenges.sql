@@ -1,6 +1,6 @@
--- Daily Habit Tracker: fixed challenges, cloud attendance/XP, and safe legacy task import.
--- Run once in Supabase Dashboard > SQL Editor. This migration adds tables/functions and
--- replaces task/settings policies with per-user policies; it does not delete table data.
+-- Daily Habit Tracker: fixed challenges, secure attendance/XP, and idempotent legacy-task import.
+-- Review existing policies and take a backup before applying to production.
+-- This migration does not delete application rows. It deliberately preserves unknown policies.
 
 begin;
 
@@ -28,33 +28,26 @@ create policy "Users can read own habit challenges"
   on public.habit_challenges for select to authenticated using (auth.uid() = user_id);
 grant select on public.habit_challenges to authenticated;
 
--- Keep app_settings and tasks usable by the app while ensuring each authenticated user
--- can access only rows whose user_id matches their Supabase account. Existing data stays intact.
+-- Do not remove unrelated policies. These owner policies are additive; the companion
+-- restrictive policies in the follow-up hardening migration enforce per-user ownership.
 do $$
-declare policy_row record;
 begin
   if to_regclass('public.tasks') is null then
-    raise exception 'Expected public.tasks table was not found. Create/verify the existing tasks table before running this migration.';
+    raise exception 'Expected public.tasks table was not found. Verify the existing tasks table before applying this migration.';
   end if;
   if to_regclass('public.app_settings') is null then
-    raise exception 'Expected public.app_settings table was not found. Create/verify the existing app_settings table before running this migration.';
+    raise exception 'Expected public.app_settings table was not found. Verify the existing app_settings table before applying this migration.';
   end if;
-
   alter table public.tasks enable row level security;
-  for policy_row in select policyname from pg_policies where schemaname = 'public' and tablename = 'tasks' loop
-    execute format('drop policy %I on public.tasks', policy_row.policyname);
-  end loop;
-  create policy "Habit tracker users manage own tasks" on public.tasks
-    for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
   alter table public.app_settings enable row level security;
-  for policy_row in select policyname from pg_policies where schemaname = 'public' and tablename = 'app_settings' loop
-    execute format('drop policy %I on public.app_settings', policy_row.policyname);
-  end loop;
-  create policy "Habit tracker users manage own settings" on public.app_settings
-    for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 end $$;
 
+drop policy if exists "Habit tracker users manage own tasks" on public.tasks;
+create policy "Habit tracker users manage own tasks" on public.tasks
+  for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Habit tracker users manage own settings" on public.app_settings;
+create policy "Habit tracker users manage own settings" on public.app_settings
+  for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 grant select, insert, update, delete on public.tasks, public.app_settings to authenticated;
 
 create table if not exists public.habit_data_imports (
@@ -74,53 +67,52 @@ create or replace function public.start_habit_challenge(p_goal_days integer, p_s
 returns public.habit_challenges
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = pg_catalog, auth, public
 as $$
 declare
   result public.habit_challenges;
+  caller_id uuid := auth.uid();
 begin
-  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  if caller_id is null then raise exception 'Authentication required'; end if;
   if p_goal_days is null or p_goal_days < 1 or p_goal_days > 365 then
     raise exception 'Goal days must be between 1 and 365';
   end if;
   if p_start_date is null then raise exception 'Start date is required'; end if;
 
   update public.habit_challenges set is_active = false
-    where user_id = auth.uid() and is_active;
+    where user_id = caller_id and is_active;
   insert into public.habit_challenges (user_id, goal_days, start_date, end_date, xp, attendance, is_active)
-    values (auth.uid(), p_goal_days, p_start_date, p_start_date + (p_goal_days - 1), 0, '{}'::jsonb, true)
+    values (caller_id, p_goal_days, p_start_date, p_start_date + (p_goal_days - 1), 0, '{}'::jsonb, true)
     returning * into result;
   return result;
 end;
 $$;
 
+-- Deprecated: the browser must not submit trusted XP or attendance values.
 create or replace function public.save_habit_challenge_progress(p_challenge_id uuid, p_attendance jsonb, p_xp integer)
 returns void
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = pg_catalog, auth, public
 as $$
 begin
-  if auth.uid() is null then raise exception 'Authentication required'; end if;
-  if p_attendance is null or jsonb_typeof(p_attendance) <> 'object' then raise exception 'Attendance must be a JSON object'; end if;
-  if p_xp is null or p_xp < 0 then raise exception 'XP must be zero or more'; end if;
-  update public.habit_challenges
-    set attendance = p_attendance, xp = greatest(xp, p_xp)
-    where id = p_challenge_id and user_id = auth.uid() and is_active;
-  if not found then raise exception 'Active challenge not found or access denied'; end if;
+  raise exception 'Deprecated RPC. Use refresh_habit_challenge_progress instead.';
 end;
 $$;
 
--- Idempotent import: a unique per-user source key and task inserts commit atomically.
+-- Idempotent import: task inserts and marker commit atomically.
 create or replace function public.import_legacy_habit_tasks(p_source_key text, p_tasks jsonb)
 returns integer
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = pg_catalog, auth, public
 as $$
 declare
   marker_id uuid;
   inserted_count integer;
+  item jsonb;
+  date_text text;
+  parsed_date date;
 begin
   if auth.uid() is null then raise exception 'Authentication required'; end if;
   if p_source_key is null or length(p_source_key) < 1 or length(p_source_key) > 128 then
@@ -129,27 +121,40 @@ begin
   if p_tasks is null or jsonb_typeof(p_tasks) <> 'array' or jsonb_array_length(p_tasks) > 5000 then
     raise exception 'Tasks must be an array containing no more than 5000 rows';
   end if;
+
+  -- Validate every row/date before inserting the idempotency marker.
+  for item in select value from jsonb_array_elements(p_tasks) as rows(value) loop
+    if jsonb_typeof(item) <> 'object' then raise exception 'Each imported task must be an object'; end if;
+    if nullif(btrim(item->>'name'), '') is null then raise exception 'Imported task name is required'; end if;
+    date_text := item->>'task_date';
+    if date_text is null or date_text !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'Task date must use YYYY-MM-DD'; end if;
+    begin
+      parsed_date := date_text::date;
+    exception when others then
+      raise exception 'Invalid calendar date: %', date_text;
+    end;
+    if to_char(parsed_date, 'YYYY-MM-DD') <> date_text then raise exception 'Invalid calendar date: %', date_text; end if;
+  end loop;
+
   insert into public.habit_data_imports (user_id, source_key)
-    values (auth.uid(), p_source_key) on conflict (user_id, source_key) do nothing returning id into marker_id;
+    values (auth.uid(), p_source_key)
+    on conflict (user_id, source_key) do nothing returning id into marker_id;
   if marker_id is null then return 0; end if;
 
   insert into public.tasks (user_id, task_date, name, status)
-  select auth.uid(), (item->>'task_date')::date,
-         left(trim(item->>'name'), 200),
-         case when upper(coalesce(item->>'status', '')) in ('YES', 'NO') then upper(item->>'status') else '' end
-    from jsonb_array_elements(p_tasks) as item
-   where nullif(trim(item->>'name'), '') is not null
-     and coalesce(item->>'task_date', '') ~ '^\d{4}-\d{2}-\d{2}$';
+  select auth.uid(), (rows.item->>'task_date')::date,
+         left(btrim(rows.item->>'name'), 200),
+         case when upper(coalesce(rows.item->>'status', '')) in ('YES', 'NO') then upper(rows.item->>'status') else '' end
+    from jsonb_array_elements(p_tasks) as rows(item);
   get diagnostics inserted_count = row_count;
   return inserted_count;
 end;
 $$;
 
-revoke all on function public.start_habit_challenge(integer, date) from public;
-revoke all on function public.save_habit_challenge_progress(uuid, jsonb, integer) from public;
-revoke all on function public.import_legacy_habit_tasks(text, jsonb) from public;
+revoke all on function public.start_habit_challenge(integer, date) from public, anon;
 grant execute on function public.start_habit_challenge(integer, date) to authenticated;
-grant execute on function public.save_habit_challenge_progress(uuid, jsonb, integer) to authenticated;
+revoke all on function public.save_habit_challenge_progress(uuid, jsonb, integer) from public, anon, authenticated;
+revoke all on function public.import_legacy_habit_tasks(text, jsonb) from public, anon;
 grant execute on function public.import_legacy_habit_tasks(text, jsonb) to authenticated;
 
 commit;
