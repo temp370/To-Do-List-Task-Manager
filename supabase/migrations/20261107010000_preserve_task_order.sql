@@ -2,11 +2,11 @@
 -- This relies on app_settings.task_templates from the persistent-daily-tasks migration.
 begin;
 
--- Keep each user's recurring-task template in its existing order when timestamps tie,
--- and otherwise order templates by the first time that task was added.
+-- Recover insertion order from the first task creation timestamp. Existing template
+-- order is used as a stable fallback where historical timestamps are unavailable.
 update public.app_settings as settings
 set task_templates = coalesce((
-  select jsonb_agg(to_jsonb(template_name) order by first_seen.created_at nulls last, template_rows.ordinality)
+  select jsonb_agg(to_jsonb(parsed.name) order by first_seen.created_at nulls last, template_rows.ordinality)
   from jsonb_array_elements(settings.task_templates) with ordinality as template_rows(value, ordinality)
   cross join lateral (
     select coalesce(template_rows.value #>> '{}', template_rows.value ->> 'name') as name
